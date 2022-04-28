@@ -1,4 +1,5 @@
 import discord
+import pandas
 import pomice
 import datetime
 import typing
@@ -25,6 +26,27 @@ from typing import (
 from copy import copy
 
 config_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "apiconfig.yml")
+
+class MusicGuess():
+    def __init__(self) -> None:
+        self.db = pandas.read_csv("AnimeMusicDB.csv")
+        self.song = self.db.sample(n=1)
+
+    def get_song(self):
+        song = self.song["URL"].values[0]
+        return song
+
+    def get_anime_title(self):
+        title = self.song["AnimeTitle"].values[0]
+        return title
+    def new_song(self):
+        self.song = self.db.sample(n=1)
+        return self.get_song()
+    async def check_title(self, title):
+        if title.lower() == self.get_anime_title().lower():
+            return True
+        else:
+            return False
 
 
 class MusicQueue(Queue):
@@ -203,117 +225,13 @@ class MusicQueue(Queue):
         """Remove all items from the queue."""
         self._queue.clear()
 
-class Player(pomice.Player):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.queue = MusicQueue()
-        self.auto_play = self.loop = self.loopq = False
-        self.context: commands.Context = None
-        self.now_playing: discord.Message = None
-        self.current_track: Track = None
-
-    def build_stream_embed(self) -> typing.Optional[discord.Embed]:
-        """Build the player Livestream embed"""
-        track = self.current_track
-        channel = self.channel
-        embed = discord.Embed(title=f":red_circle: **LIVE** on {self.bot.user.name} | {channel.name}", colour=0xebb145)
-        embed.description = f'Now Playing:\n[{track.title}]({track.uri})\n\n'
-        embed.set_thumbnail(url=track.thumbnail)
-        embed.add_field(name='Volume', value=f'**`{self.volume}%`**')
-        embed.add_field(name='Requested By', value=track.requester)
-        embed.set_footer(text="Youtube Live/Twitch")
-        return embed
-
-    def build_embed(self) -> typing.Optional[discord.Embed]:
-        """Method which builds our players controller embed."""
-        track = self.current_track
-        channel = self.channel
-        qsize = len(self.queue)
-        track_type = "Spotify" if track.spotify else "Youtube"
-        embed = discord.Embed(title=f':musical_note: {self.bot.user.name} Music | {channel.name}', colour=0xebb145)
-        embed.description = f'Now Playing:\n[{track.title}]({track.uri})\n\n'
-        embed.set_thumbnail(url=track.thumbnail)
-
-        embed.add_field(name='Duration', value=str(datetime.timedelta(milliseconds=int(track.length))))
-        embed.add_field(name='Queue Length', value=str(qsize))
-        embed.add_field(name='Volume', value=f'**`{self.volume}%`**')
-        embed.add_field(name='Requested By', value=track.requester)
-        if self.auto_play:
-            embed.add_field(name='Autoplay', value=f'**`{self.auto_play}`**')
-        if self.loop:
-            embed.add_field(name='Loop', value=f'**`{self.loop}`**')
-        if self.loopq:
-            embed.add_field(name='Loop', value='**`Queue`**')
-        embed.set_footer(text=f"{track_type}")
-        return embed
-
-    async def is_position_fresh(self) -> bool:
-        """Method which checks whether the player controller should be remade or updated."""
-        try:
-            async for message in self.context.channel.history(limit=5):
-                if message.id == self.now_playing.id:
-                    return True
-        except (discord.HTTPException, AttributeError, discord.Forbidden):
-            return False
-
-        return False
-
-    async def next(self) -> None:
-        """Gets next song from queue and play it"""
-        try:
-            track: pomice.Track = await self.queue.get()
-        except asyncio.queues.QueueEmpty:
-            return
-        self.current_track = track
-        await self.play(track)
-        if self.now_playing and await self.is_position_fresh():
-            if self.current_track.is_stream:
-                return await self.now_playing.edit(embed=self.build_stream_embed())
-            return await self.now_playing.edit(embed=self.build_embed())
-        if self.now_playing:
-            await self.now_playing.delete()
-        if self.current_track.is_stream:
-            self.now_playing = await self.context.send(embed=self.build_stream_embed())
-        else:
-            self.now_playing = await self.context.send(embed=self.build_embed())
-    async def loop_next(self) -> None:
-        """Gets the current song being played and plays it again"""
-        await self.play(self.current_track)
-        return await self.now_playing.edit(embed=self.build_embed())
-
-    async def loopq_next(self) -> None:
-        """Get the next song and puts the last song played back into the queue"""
-        await self.queue.put(self.current_track)
-        await self.next()
-
-    async def autoplay_next(self) -> None:
-        """Uses the Youtube Mix to generate songs after the queue becomes empty"""
-        if self.queue.is_empty:
-            ytid = self.current_track.uri.split("https://www.youtube.com/watch?v=")[1]
-            for attempt in range(5):
-                mix = await self.get_tracks(f"https://www.youtube.com/watch?v={ytid}&list=RD{ytid}", ctx=self.context)
-                if mix:
-                    break
-                print("\u001b[91m [AP] Retrying to load Mix \u001b[0m")
-            for track in mix.tracks[1:]:
-                await self.queue.put(track)
-        await self.next()
-
-    async def teardown(self):
-        """Kills the player"""
-        await self.destroy()
-        if self.now_playing:
-            await self.now_playing.delete()
-
-    def set_context(self, ctx: commands.Context):
-        """Gets the Context"""
-        self.context = ctx
 
 class Player(pomice.Player):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.queue = MusicQueue()
-        self.auto_play = self.loop = self.loopq = False
+        self.auto_play = self.loop = self.loopq = self.game = False
+        self.Game = MusicGuess()
         self.context: commands.Context = None
         self.now_playing: discord.Message = None
         self.current_track: Track = None
@@ -353,7 +271,6 @@ class Player(pomice.Player):
             embed.add_field(name='Loop', value='**`Queue`**')
         embed.set_footer(text=f"{track_type}")
         return embed
-
     async def is_position_fresh(self) -> bool:
         """Method which checks whether the player controller should be remade or updated."""
         try:
@@ -405,6 +322,19 @@ class Player(pomice.Player):
             for track in mix.tracks[1:]:
                 await self.queue.put(track)
         await self.next()
+    
+    
+    async def game_next(self) -> None:
+        """Gets the next song from the queue and Games it"""
+        result = await self.get_tracks(self.Game.new_song(), ctx=self.context)
+        await self.queue.put(result[0])
+        track: pomice.Track = await self.queue.get()
+        self.current_track = track
+        # await self.context.send(f"{self.current_track.title} has ended\nAnime was {self.Game.get_anime_title()}")
+        print(f"{self.current_track.title} has ended\nAnime was {self.Game.get_anime_title()}")
+        await self.play(track)
+        
+        
 
     async def teardown(self):
         """Kills the player"""
@@ -425,6 +355,7 @@ class MusicV2(commands.Cog):
             self.spotify = config["music"]["Spotify"]
         self.pomice = pomice.NodePool()
         bot.loop.create_task(self.start_nodes())
+        self.games = {}
 
     async def start_nodes(self):
         for n in self.nodes.values():
@@ -441,8 +372,20 @@ class MusicV2(commands.Cog):
             await player.loopq_next()
         elif player.auto_play:
             await player.autoplay_next()
+        elif player.game:
+            if not player.is_playing:
+                await player.game_next()
         else:
             await player.next()
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if message.author.bot:
+            return
+        if message.channel.id in self.games:
+            if await self.games[message.channel.id].Game.check_title(message.content):
+                await message.channel.send("Correct!")
+                await self.games[message.channel.id].stop()
+        await self.bot.process_commands(message)
 
     @commands.Cog.listener()
     async def on_pomice_track_stuck(self, player: Player, track, _):
@@ -468,7 +411,19 @@ class MusicV2(commands.Cog):
 
         # Set the player context so we can use it so send messages
         player.set_context(ctx=ctx)
+    @commands.command()
+    async def GS(self, ctx):
+        if not (player := ctx.voice_client):
+            await ctx.invoke(self.connect)
+        player: Player = ctx.voice_client
+        player.game = True
+        self.games[ctx.channel.id] = player
 
+        results = await player.get_tracks(player.Game.new_song(), ctx=ctx)
+        track = results[0]
+        await player.queue.put(track)
+        if not player.is_playing:
+            await player.game_next()
     @commands.command(aliases=['disconnect', 'dc', 'disc', 'lv', 'fuckoff', 'stop'])
     async def leave(self, ctx: commands.Context):
         if not (player := ctx.voice_client):
@@ -725,4 +680,4 @@ class MusicV2(commands.Cog):
                 await ctx.send(f"{speed}x speed effect enabled!")
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(MusicV2(bot))
+   await bot.add_cog(MusicV2(bot))
