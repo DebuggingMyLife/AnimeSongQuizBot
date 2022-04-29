@@ -36,14 +36,39 @@ class MusicGuess():
         song = self.song["URL"].values[0]
         return song
 
+    def get_song_title(self):
+        song_title = self.song["Title"].values[0]
+        return song_title
     def get_anime_title(self):
         title = self.song["AnimeTitle"].values[0]
         return title
+
+    def get_en_anime_tile(self):
+        en_title = self.song["AnimeEnTitle"].values[0]
+        return en_title
+
+    def get_jp_anime_tile(self):
+        jp_title = self.song["AnimeJpTitle"].values[0]
+        return jp_title
+
+    def get_jp_artist_name(self):
+        jp_artist_name = self.song["JpArtistName"].values[0]
+        return jp_artist_name
+
+    def get_alt_artist_name(self):
+        alt_artist_name = self.song["AltArtistName"].values[0]
+        return alt_artist_name
+
+    def get_MAL(self):
+        mal_url = self.song["MAL URL"].values[0]
+        return mal_url
+
     def new_song(self):
         self.song = self.db.sample(n=1)
         return self.get_song()
+
     async def check_title(self, title):
-        if title.lower() == self.get_anime_title().lower():
+        if title.lower() == self.get_anime_title().lower() or title.lower() == self.get_en_anime_tile().lower() or title.lower() == self.get_jp_anime_tile().lower():
             return True
         else:
             return False
@@ -322,8 +347,8 @@ class Player(pomice.Player):
             for track in mix.tracks[1:]:
                 await self.queue.put(track)
         await self.next()
-    
-    
+
+
     async def game_next(self) -> None:
         """Gets the next song from the queue and Games it"""
         result = await self.get_tracks(self.Game.new_song(), ctx=self.context)
@@ -331,10 +356,10 @@ class Player(pomice.Player):
         track: pomice.Track = await self.queue.get()
         self.current_track = track
         # await self.context.send(f"{self.current_track.title} has ended\nAnime was {self.Game.get_anime_title()}")
-        print(f"{self.current_track.title} has ended\nAnime was {self.Game.get_anime_title()}")
+        print(f"{self.current_track.title} has ended\nAnime was {self.Game.get_anime_title()}\n {self.Game.get_en_anime_tile()}\n {self.Game.get_jp_anime_tile()}")
         await self.play(track)
-        
-        
+
+
 
     async def teardown(self):
         """Kills the player"""
@@ -382,8 +407,8 @@ class MusicV2(commands.Cog):
         if message.author.bot:
             return
         if message.channel.id in self.games:
-            if await self.games[message.channel.id].Game.check_title(message.content):
-                await message.channel.send("Correct!")
+            if await self.games[message.channel.id].Game.check_title(message.content) :
+                await message.channel.send(f"Correct!")#This song is called {self.G.get_song_title()} from {self.get_anime_title()}\n {self.Game.get_MAL()}
                 await self.games[message.channel.id].stop()
         await self.bot.process_commands(message)
 
